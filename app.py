@@ -17,7 +17,9 @@ def check_password():
         st.session_state["password_correct"] = False
 
     def password_entered():
-        if st.session_state["username"] == "admin" and st.session_state["password"] == "1234":
+        # 从 st.secrets 中读取账号和密码
+        if (st.session_state["username"] == st.secrets["DB_USERNAME"] and 
+            st.session_state["password"] == st.secrets["DB_PASSWORD"]):
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
@@ -105,7 +107,7 @@ first_day_of_current_month = latest_date_in_data.replace(day=1)
 
 # 主日期范围 (Primary Date Range)
 date_range = st.sidebar.date_input(
-    "Primary Date Range (当前周期)", 
+    "Primary Date Range", 
     value=(first_day_of_current_month.date(), latest_date_in_data.date()),
     min_value=df_sales['Date'].min().date(),
     max_value=df_sales['Date'].max().date()
@@ -113,7 +115,7 @@ date_range = st.sidebar.date_input(
 
 # --- 全局对比控制 ---
 st.sidebar.divider()
-enable_comparison = st.sidebar.checkbox("Enable Comparison (开启对比模式)", value=True)
+enable_comparison = st.sidebar.checkbox("Enable Comparison", value=True)
 
 comp_range = None
 if enable_comparison:
@@ -124,7 +126,7 @@ if enable_comparison:
     prev_start = prev_end - timedelta(days=duration - 1)
     
     comp_range = st.sidebar.date_input(
-        "Comparison Date Range (对比周期)",
+        "Comparison Date Range",
         value=(prev_start.date(), prev_end.date()),
         key='global_comp_date'
     )
