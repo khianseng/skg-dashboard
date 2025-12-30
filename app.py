@@ -145,15 +145,14 @@ tab1, tab2, tab3 = st.tabs(["📦 Stock Balance", "📈 Sales Analysis", "🛒 P
 with tab1:
     st.header("Inventory Overview")
     
-    # --- 1. 数据预处理 (仅保留 Quantity > 0) ---
-    # 过滤掉库存为 0 或负数的数据
+    # --- 1. 数据预处理 (核心要求：仅呈现 > 0 的数据) ---
     df_stock_positive = df_stock[df_stock['Quantity'] > 0].copy()
 
-    # --- 2. 核心分析区 (Distribution & Balance Summary) ---
     if df_stock_positive.empty:
-        st.warning("No stock balance (>0) found in the data.")
+        st.warning("No active stock balance (>0) found.")
     else:
-        # 按 Warehouse Type 分组汇总
+        # --- 2. 核心分析区 (Distribution & Balance Summary) ---
+        # 仅针对 >0 的数据进行汇总
         summary_df = df_stock_positive.groupby('Warehouse Type')['Quantity'].sum().reset_index()
         summary_df = summary_df.sort_values('Quantity', ascending=False)
         
@@ -164,21 +163,13 @@ with tab1:
         
         with col_pie:
             st.subheader("Distribution")
-            fig_pie = px.pie(
-                summary_df, 
-                values='Quantity', 
-                names='Warehouse Type', 
-                hole=0.5,
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            fig_pie = px.pie(summary_df, values='Quantity', names='Warehouse Type', hole=0.5)
             fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=300)
             st.plotly_chart(fig_pie, use_container_width=True)
             
         with col_table:
             st.subheader("Balance Summary")
             st.metric(label="Total Active Stock (Qty > 0)", value=f"{total_qty:,.0f}")
-            
             st.dataframe(
                 summary_df,
                 hide_index=True,
@@ -187,100 +178,88 @@ with tab1:
                 column_config={
                     "Warehouse Type": "Type",
                     "Quantity": st.column_config.ProgressColumn(
-                        "Stock Qty", 
-                        format="%d", 
-                        min_value=0, 
-                        max_value=int(summary_df['Quantity'].max())
-                    ),
-                    "% Share": st.column_config.TextColumn("Share")
+                        "Stock Qty", format="%d", min_value=0, max_value=int(summary_df['Quantity'].max())
+                    )
                 }
             )
 
         st.divider()
 
-        # --- 3. Top 20 SKUs (带分类过滤器) ---
+        # --- 3. Top 20 SKUs (增加 Filter Button) ---
         st.subheader("Top 20 SKUs Analysis")
         
-        # 增加过滤按钮
-        stock_filter = st.radio(
-            "Filter Stock Category:",
+        # 定义分类按钮 (修复 NameError)
+        stock_filter = st.pills(
+            "Quick Filter:",
             options=["All", "Warehouse", "Consign", "Warehouse and Consign"],
-            horizontal=True,
-            index=0
+            selection_mode="single",
+            default="All"
         )
 
         # 执行过滤逻辑
-        if stock_filter == "All":
-            display_stock = df_stock_positive.copy()
-        elif stock_filter == "Warehouse":
+        if stock_filter == "Warehouse":
             display_stock = df_stock_positive[df_stock_positive['Warehouse Type'] == 'Warehouse']
         elif stock_filter == "Consign":
             display_stock = df_stock_positive[df_stock_positive['Warehouse Type'] == 'Consign']
         elif stock_filter == "Warehouse and Consign":
             display_stock = df_stock_positive[df_stock_positive['Warehouse Type'].isin(['Warehouse', 'Consign'])]
         else:
-            display_stock = df_stock_positive.copy()
+            display_stock = df_stock_positive
 
         if display_stock.empty:
-            st.info(f"No data available for category: {stock_filter}")
+            st.info(f"No stock found for: {stock_filter}")
         else:
             top_stock = display_stock.groupby('Stock Name')['Quantity'].sum().nlargest(20).reset_index().sort_values('Quantity', ascending=True)
-            
-            fig_bar = px.bar(
-                top_stock, 
-                x='Quantity', 
-                y='Stock Name', 
-                orientation='h',
-                text_auto=True,
-                color='Quantity',
-                color_continuous_scale='Blues'
-            )
-            fig_bar.update_layout(xaxis_title=None, yaxis_title=None, height=600)
+            fig_bar = px.bar(top_stock, x='Quantity', y='Stock Name', orientation='h', text_auto=True, color='Quantity', color_continuous_scale='Blues')
+            fig_bar.update_layout(height=600, yaxis_title=None)
             st.plotly_chart(fig_bar, use_container_width=True)
 
         st.divider()
 
-        # --- 4. 细节卡片区 (自动跟随 Top 20 的过滤逻辑) ---
+        # --- 4. Location Details (点击行显示明细) ---
         st.subheader(f"Location Details ({stock_filter})")
-        
-        # 重新计算该过滤条件下的汇总
-        card_summary = display_stock.groupby('Warehouse Type')['Quantity'].sum().reset_index().sort_values('Quantity', ascending=False)
-        active_types = card_summary['Warehouse Type'].tolist()
-        
+        st.caption("✨ Tip: Click any row below to see product details.")
+
+        # 根据当前选中的 filter 决定显示的 card
+        active_types = display_stock.groupby('Warehouse Type')['Quantity'].sum().sort_values(ascending=False).index.tolist()
         grid_cols = st.columns(3)
-        card_count = 0
         
-        for wh_type in active_types:
+        for i, wh_type in enumerate(active_types):
             type_data = display_stock[display_stock['Warehouse Type'] == wh_type]
-            breakdown = type_data.groupby('Warehouse Name')['Quantity'].sum().reset_index()
-            breakdown = breakdown[breakdown['Quantity'] > 0].sort_values('Quantity', ascending=False)
+            breakdown = type_data.groupby('Warehouse Name')['Quantity'].sum().reset_index().sort_values('Quantity', ascending=False)
             
-            if breakdown.empty:
-                continue
-            
-            type_total = breakdown['Quantity'].sum()
-            
-            with grid_cols[card_count % 3]:
+            with grid_cols[i % 3]:
                 with st.container(border=True):
                     st.markdown(f"**{wh_type}**")
-                    st.markdown(f"### {type_total:,.0f}")
                     
-                    st.dataframe(
+                    # 修复 single-row 错误
+                    event = st.dataframe(
                         breakdown,
                         hide_index=True,
                         use_container_width=True,
-                        height=200,
+                        height=280,
+                        on_select="rerun",           
+                        selection_mode="single-row", # 使用连字符
+                        key=f"df_{wh_type}",         # 增加 key 防止冲突
                         column_config={
-                            "Warehouse Name": st.column_config.TextColumn("Location"),
                             "Quantity": st.column_config.ProgressColumn(
-                                "Qty", 
-                                format="%d",
-                                min_value=0,
-                                max_value=int(breakdown['Quantity'].max()) if not breakdown.empty else 100
+                                "Qty", format="%d", min_value=0, max_value=int(breakdown['Quantity'].max())
                             )
                         }
                     )
-            card_count += 1
+                    
+                    # 点击交互明细
+                    if event and event.selection.rows:
+                        selected_index = event.selection.rows[0]
+                        selected_loc = breakdown.iloc[selected_index]['Warehouse Name']
+                        
+                        st.markdown(f"---")
+                        st.markdown(f"📦 **{selected_loc}** Breakdown:")
+                        prod_detail = type_data[type_data['Warehouse Name'] == selected_loc][['Stock Name', 'Quantity']]
+                        st.dataframe(
+                            prod_detail.sort_values('Quantity', ascending=False),
+                            hide_index=True, use_container_width=True, height=180
+                        )
 
 # === TAB 2: SALES ===
 with tab2:
