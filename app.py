@@ -593,7 +593,7 @@ with tab3:
     filter_status = st.multiselect(
         "Filter by Health Status:",
         options=["🔴 Low Stock (<14 Days)", "🟢 Healthy (14-60 Days)", "🟡 Overstock (>60 Days)", "⚫ Dead Stock (No Sales)", "⚪ Out of Stock"],
-        default=["🔴 Low Stock (<14 Days)", "🟡 Overstock (>60 Days)"] 
+        default=["🔴 Low Stock (<14 Days)", "🟢 Healthy (14-60 Days)", "🟡 Overstock (>60 Days)", "⚫ Dead Stock (No Sales)", "⚪ Out of Stock"] 
     )
     
     # 过滤数据
