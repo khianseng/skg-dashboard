@@ -145,37 +145,27 @@ tab1, tab2, tab3 = st.tabs(["📦 Stock Balance", "📈 Sales Analysis", "🛒 P
 with tab1:
     st.header("Inventory Overview")
     
-    # --- 1. 过滤器 ---
-    with st.expander("🔎 Filter Options (Click to expand)", expanded=False):
-        selected_wh_types = st.multiselect(
-            "Select Warehouse Types:",
-            options=df_stock['Warehouse Type'].unique(),
-            default=df_stock['Warehouse Type'].unique()
-        )
-    
-    filtered_stock = df_stock[df_stock['Warehouse Type'].isin(selected_wh_types)]
+    # --- 1. 数据预处理 (仅保留 Quantity > 0) ---
+    # 过滤掉库存为 0 或负数的数据
+    df_stock_positive = df_stock[df_stock['Quantity'] > 0].copy()
 
-    if filtered_stock.empty:
-        st.warning("Please select at least one Warehouse Type.")
+    # --- 2. 核心分析区 (Distribution & Balance Summary) ---
+    if df_stock_positive.empty:
+        st.warning("No stock balance (>0) found in the data.")
     else:
-        # --- 2. 核心分析区 (左图 - 空隙 - 右表) ---
-        summary_df = filtered_stock.groupby('Warehouse Type')['Quantity'].sum().reset_index()
+        # 按 Warehouse Type 分组汇总
+        summary_df = df_stock_positive.groupby('Warehouse Type')['Quantity'].sum().reset_index()
         summary_df = summary_df.sort_values('Quantity', ascending=False)
         
         total_qty = summary_df['Quantity'].sum()
         summary_df['% Share'] = (summary_df['Quantity'] / total_qty * 100).apply(lambda x: f"{x:.1f}%")
         
-        # [修改点]：这里创建了 3 个列
-        # 1.5 是左边图的宽度
-        # 0.2 是中间的空隙 (你可以把这个数字改大改小来调整间距)
-        # 1.0 是右边表的宽度
         col_pie, col_spacer, col_table = st.columns([1, 0.2, 1]) 
         
-        # [左] 饼图
         with col_pie:
             st.subheader("Distribution")
             fig_pie = px.pie(
-                filtered_stock, 
+                summary_df, 
                 values='Quantity', 
                 names='Warehouse Type', 
                 hole=0.5,
@@ -184,13 +174,10 @@ with tab1:
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=300)
             st.plotly_chart(fig_pie, use_container_width=True)
-        
-        # [中] 空隙列什么都不放，自然形成留白
             
-        # [右] 汇总表格
         with col_table:
             st.subheader("Balance Summary")
-            st.metric(label="Total Selected Stock", value=f"{total_qty:,.0f}")
+            st.metric(label="Total Active Stock (Qty > 0)", value=f"{total_qty:,.0f}")
             
             st.dataframe(
                 summary_df,
@@ -211,43 +198,66 @@ with tab1:
 
         st.divider()
 
-        # --- 3. Top SKUs (移到第二行，宽屏显示) ---
-        st.subheader(f"Top 20 SKUs")
+        # --- 3. Top 20 SKUs (带分类过滤器) ---
+        st.subheader("Top 20 SKUs Analysis")
         
-        # 这里改成 nlargest(20)
-        top_stock = filtered_stock.groupby('Stock Name')['Quantity'].sum().nlargest(20).reset_index().sort_values('Quantity', ascending=True)
-        
-        fig_bar = px.bar(
-            top_stock, 
-            x='Quantity', 
-            y='Stock Name', 
-            orientation='h',
-            text_auto=True,
-            color='Quantity',
-            color_continuous_scale='Blues'
+        # 增加过滤按钮
+        stock_filter = st.radio(
+            "Filter Stock Category:",
+            options=["All", "Warehouse", "Consign", "Warehouse and Consign"],
+            horizontal=True,
+            index=0
         )
-        # 高度增加到 600，保证显示20个不拥挤
-        fig_bar.update_layout(xaxis_title=None, yaxis_title=None, height=600)
-        st.plotly_chart(fig_bar, use_container_width=True)
+
+        # 执行过滤逻辑
+        if stock_filter == "All":
+            display_stock = df_stock_positive.copy()
+        elif stock_filter == "Warehouse":
+            display_stock = df_stock_positive[df_stock_positive['Warehouse Type'] == 'Warehouse']
+        elif stock_filter == "Consign":
+            display_stock = df_stock_positive[df_stock_positive['Warehouse Type'] == 'Consign']
+        elif stock_filter == "Warehouse and Consign":
+            display_stock = df_stock_positive[df_stock_positive['Warehouse Type'].isin(['Warehouse', 'Consign'])]
+        else:
+            display_stock = df_stock_positive.copy()
+
+        if display_stock.empty:
+            st.info(f"No data available for category: {stock_filter}")
+        else:
+            top_stock = display_stock.groupby('Stock Name')['Quantity'].sum().nlargest(20).reset_index().sort_values('Quantity', ascending=True)
+            
+            fig_bar = px.bar(
+                top_stock, 
+                x='Quantity', 
+                y='Stock Name', 
+                orientation='h',
+                text_auto=True,
+                color='Quantity',
+                color_continuous_scale='Blues'
+            )
+            fig_bar.update_layout(xaxis_title=None, yaxis_title=None, height=600)
+            st.plotly_chart(fig_bar, use_container_width=True)
 
         st.divider()
 
-        # --- 4. 细节卡片区 (保持不变) ---
-        st.subheader("Warehouse & Outlet Details")
+        # --- 4. 细节卡片区 (自动跟随 Top 20 的过滤逻辑) ---
+        st.subheader(f"Location Details ({stock_filter})")
+        
+        # 重新计算该过滤条件下的汇总
+        card_summary = display_stock.groupby('Warehouse Type')['Quantity'].sum().reset_index().sort_values('Quantity', ascending=False)
+        active_types = card_summary['Warehouse Type'].tolist()
         
         grid_cols = st.columns(3)
-        active_types = summary_df['Warehouse Type'].tolist()
         card_count = 0
         
         for wh_type in active_types:
-            type_data = filtered_stock[filtered_stock['Warehouse Type'] == wh_type]
+            type_data = display_stock[display_stock['Warehouse Type'] == wh_type]
             breakdown = type_data.groupby('Warehouse Name')['Quantity'].sum().reset_index()
-            breakdown = breakdown[breakdown['Quantity'] > 0]
+            breakdown = breakdown[breakdown['Quantity'] > 0].sort_values('Quantity', ascending=False)
             
             if breakdown.empty:
                 continue
             
-            breakdown = breakdown.sort_values('Quantity', ascending=False)
             type_total = breakdown['Quantity'].sum()
             
             with grid_cols[card_count % 3]:
@@ -262,7 +272,6 @@ with tab1:
                         height=200,
                         column_config={
                             "Warehouse Name": st.column_config.TextColumn("Location"),
-                            # [修改点]：这里也加上了 ProgressColumn，视觉更统一
                             "Quantity": st.column_config.ProgressColumn(
                                 "Qty", 
                                 format="%d",
