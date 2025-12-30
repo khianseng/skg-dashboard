@@ -16,21 +16,27 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
-    def password_entered():
-        # 从 st.secrets 中读取账号和密码
-        if (st.session_state["username"] == st.secrets["DB_USERNAME"] and 
-            st.session_state["password"] == st.secrets["DB_PASSWORD"]):
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
+    if st.session_state["password_correct"]:
+        return True
 
-    if not st.session_state["password_correct"]:
+    # 登录界面容器
+    with st.container():
         st.subheader("Login / 登入")
-        st.text_input("Username", key="username")
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        return False
-    return True
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        
+        # 添加登录按钮
+        if st.button("Login", type="primary"):
+            # 验证逻辑
+            if (username == st.secrets["DB_USERNAME"] and 
+                password == st.secrets["DB_PASSWORD"]):
+                st.session_state["password_correct"] = True
+                st.rerun() # 验证成功后刷新页面以进入主程序
+            else:
+                st.error("😕 User not found or password incorrect")
+                st.session_state["password_correct"] = False
+                
+    return False
 
 if not check_password():
     st.stop()
